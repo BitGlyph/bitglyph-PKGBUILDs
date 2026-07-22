@@ -1,0 +1,15 @@
+pkgname=bitglyph-cad-meta
+pkgver=1
+pkgrel=1
+pkgdesc="Meta package: cad software"
+arch=('any')
+url="https://github.com/<you>/my-pkgbuilds"
+license=('MIT')
+depends=(
+  'freecad'
+  'kicad'
+)
+
+package() {
+  : # nothing to install, this exists purely to pull in dependencies
+}
