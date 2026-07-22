@@ -1,0 +1,413 @@
+# =============================================================================
+# CachyOS Custom ISO — Package Manifest
+# =============================================================================
+# Purpose:
+#   Master source-of-truth for building a custom `packages.x86_64` list for
+#   an Arch/CachyOS live ISO (archiso profile). Grouped into logical modules
+#   so it's easy to reason about what's core, what's DE-specific, what's
+#   only needed on the live medium, and what's driver/hardware-support.
+#
+# How to read this file:
+#   - Each top-level key under `modules:` is a package group.
+#   - `target_system: true`  -> these packages are expected to end up on the
+#                               INSTALLED system (not just the live ISO).
+#   - `target_system: false` -> these are live-ISO / installer-only tooling.
+#                               Don't ship these to the target without
+#                               deliberately deciding to (per your request).
+#   - `live_install` has `subgroups` instead of a flat `packages` list, since
+#     it covers a few different flavors of "only needed on the live medium".
+#   - `questionable_packages` at the bottom is a holding pen for stuff that
+#     looks like legacy cruft, redundant, or low-value. NOTHING is deleted —
+#     just flagged with a `reason` so you can decide to drop it yourself.
+#
+# For your conversion script:
+#   - Every package name is a plain scalar string; anything after `#` on
+#     that line is a human comment only — strip it when flattening to
+#     packages.x86_64.
+#   - Simplest approach: walk `modules.*.packages` (and `modules.*.subgroups.*.packages`),
+#     then walk `questionable_packages[].name`, dedupe, done.
+# =============================================================================
+
+modules:
+
+  # ---------------------------------------------------------------------
+  base_system:
+    description: >
+      Absolute core packages needed regardless of desktop environment or
+      use case. If you strip everything else, this is what's left.
+    target_system: true
+    packages:
+      - base                       # Minimal Arch base package group
+      - bash-completion             # Tab-completion for bash
+      - sudo                        # Privilege escalation
+      - polkit                      # Authorization framework (needed by nearly everything, any DE)
+      - archlinux-keyring            # Arch Linux package signing keys
+      - cachyos-keyring              # CachyOS package signing keys
+      - cachyos-mirrorlist            # CachyOS repo mirrorlist
+      - cachyos-v3-mirrorlist         # Mirrorlist for x86-64-v3 optimized repo
+      - cachyos-v4-mirrorlist         # Mirrorlist for x86-64-v4 optimized repo
+      - cachyos-rate-mirrors          # Benchmarks/ranks mirrors by speed
+      - cachyos-settings              # CachyOS baseline system tuning/config
+      - xdg-utils                    # Desktop-integration helper scripts (open, mime, etc.)
+      - xdg-user-dirs-gtk              # Creates/localizes ~/Desktop, ~/Documents, etc.
+      - mkinitcpio                   # Initramfs generator (needed for every kernel)
+      - paru                         # AUR helper, CachyOS default
+      - power-profiles-daemon         # Power profile switching (balanced/performance/saver)
+
+  # ---------------------------------------------------------------------
+  development_tools:
+    description: >
+      Build tooling. Mostly here because paru/AUR building and package
+      compilation need them (base-devel-adjacent).
+    target_system: true
+    packages:
+      - gcc                         # C/C++ compiler, needed to build AUR/any packages
+      - fakeroot                    # Simulates root for package builds (makepkg dependency)
+
+  # ---------------------------------------------------------------------
+  security:
+    description: Encryption, authentication, and hardware security support.
+    target_system: true
+    packages:
+      - cryptsetup                  # LUKS full-disk/partition encryption
+      - tpm2-tss                    # TPM 2.0 software stack (secure boot, disk unlock, etc.)
+      - libfido2                    # FIDO2/U2F hardware security key support (WebAuthn, SSH keys)
+
+  # ---------------------------------------------------------------------
+  boot_bootloader:
+    description: Bootloader and boot-chain packages for the installed system.
+    target_system: true
+    packages:
+      - grub                        # Primary bootloader
+      - efibootmgr                  # Manage UEFI boot entries
+      - os-prober                   # Detects other OSes for GRUB dual-boot menus
+
+  # ---------------------------------------------------------------------
+  kernel:
+    description: >
+      CachyOS kernel variants. You almost certainly do NOT want all six of
+      these on a real install — pick your main kernel + maybe an -lts
+      fallback, and only include -zfs/-nvidia-open variants if you actually
+      need those features (they exist as separate builds for ABI reasons).
+    target_system: true
+    packages:
+      - linux-cachyos                    # CachyOS-optimized mainline kernel
+      - linux-cachyos-nvidia-open         # Same, bundled w/ Nvidia open-kernel-module support
+      # - linux-cachyos-zfs                 # Same, with ZFS module built in
+      - linux-cachyos-lts                 # Long-term-support kernel variant
+      - linux-cachyos-lts-nvidia-open      # LTS + Nvidia open module
+      # - linux-cachyos-lts-zfs              # LTS + ZFS module
+
+  # ---------------------------------------------------------------------
+  microcode_firmware:
+    description: CPU microcode and kernel firmware blobs.
+    target_system: true
+    packages:
+      - amd-ucode                   # AMD CPU microcode updates
+      - intel-ucode                 # Intel CPU microcode updates
+      - linux-firmware               # Bulk of in-kernel-tree device firmware
+      - linux-firmware-marvell        # Marvell-specific device firmware (separate pkg upstream)
+
+  # ---------------------------------------------------------------------
+  drivers_hardware:
+    description: Hardware enablement — GPU, USB, storage diagnostics, misc chip support.
+    target_system: true
+    packages:
+      - mesa                        # Open-source GPU drivers (Intel/AMD/software)
+      - nvidia-utils                # Proprietary/open Nvidia driver userspace utils
+      - bolt                        # Thunderbolt device authorization daemon
+      - dmidecode                   # Reads DMI/SMBIOS hardware tables
+      - usbutils                    # lsusb and USB device inspection
+      - usb_modeswitch               # Switches USB modems/dongles out of "storage mode"
+      - usbmuxd                     # USB multiplexer daemon for iOS device connections
+      - libusb-compat                # Legacy libusb-0.1 compatibility shim
+      - pcsclite                    # Smart-card / PC/SC reader daemon
+      - smartmontools                # S.M.A.R.T. disk health monitoring
+      - sdparm                      # SCSI/SATA disk parameter tool
+      - sg3_utils                   # Low-level SCSI generic device utilities
+      - nvme-cli                    # NVMe drive management/diagnostics
+      - lsscsi                      # Lists attached SCSI/SATA/NVMe devices
+
+  # ---------------------------------------------------------------------
+  virtualization_guest:
+    description: >
+      Guest-side integration packages — only useful/relevant if the
+      installed system itself runs *inside* a hypervisor.
+    target_system: true
+    packages:
+      - qemu-guest-agent             # Guest agent for QEMU/KVM hosts
+      - spice-vdagent                # Clipboard/resolution sync for SPICE-based VMs
+      - open-vm-tools                # VMware guest integration tools
+      - virtualbox-guest-utils        # VirtualBox guest integration tools
+      - hyperv                       # Hyper-V guest integration tools/drivers
+      - vulkan-virtio                # Vulkan driver for virtio-gpu (virtualized 3D)
+
+  # ---------------------------------------------------------------------
+  filesystems_storage:
+    description: >
+      Core storage-stack tooling expected to matter on the *installed*
+      system (root/EFI filesystem types, volume management, encryption
+      partners). Exotic/rarely-root filesystem support lives under
+      live_install > filesystem_type_support instead.
+    target_system: true
+    packages:
+      - parted                      # Partition table editor
+      - gptfdisk                    # GPT-focused partitioning tools (gdisk/sgdisk)
+      - dosfstools                  # FAT tools — needed for the EFI system partition
+      - btrfs-progs                 # Btrfs tools (common CachyOS default root fs)
+      - e2fsprogs                   # ext2/3/4 tools
+      - xfsprogs                    # XFS tools
+      - lvm2                        # Logical Volume Manager
+      - mdadm                       # Software RAID (mdraid) management
+      - zfs-utils                   # ZFS tools (only needed if using a -zfs kernel/root)
+      - bcachefs-tools               # bcachefs tools (only needed if using bcachefs as root)
+      - ntfs-3g                     # NTFS read/write — kept for dual-boot Windows access
+
+  # ---------------------------------------------------------------------
+  networking:
+    description: Connectivity, wireless, VPN/tunnel, and network diagnostics.
+    target_system: true
+    packages:
+      - networkmanager               # Primary connection manager
+      - iwd                         # Modern Wi-Fi daemon (NetworkManager backend option)
+      - wpa_supplicant                # WPA/WPA2/WPA3 wireless auth
+      - dhcpcd                      # Standalone DHCP client (fallback/manual use)
+      - iw                          # Modern wireless config CLI
+      - wireless_tools                # Legacy wireless-extensions CLI (superseded by iw, kept for compat)
+      - wireless-regdb                # Wireless regulatory domain database
+      - ethtool                     # Ethernet NIC settings/diagnostics
+      - net-tools                    # Legacy net tools (ifconfig, netstat) — superseded by `ip`/`ss` but widely expected
+      - inetutils                   # Basic net utilities (telnet, ftp, etc.)
+      - nfs-utils                   # NFS client/server support
+      - smbclient                   # SMB/CIFS client tools
+      - openssh                     # SSH client + server
+      - openvpn                     # OpenVPN client/server
+      - modemmanager                 # Mobile broadband modem management
+      - mobile-broadband-provider-info  # Carrier/APN database for ModemManager
+      - avahi                       # mDNS/Zeroconf service discovery
+      - nss-mdns                     # NSS plugin for resolving .local mDNS names
+      - systemd-resolvconf            # resolvconf compatibility shim for systemd-resolved
+      - ndisc6                      # IPv6 neighbor discovery diagnostic tools
+      - traceroute                  # Network path tracing
+      - dnsmasq                     # Lightweight DNS/DHCP server (hotspot/container use)
+      - bind                        # Full DNS server + dig/nslookup/host tools — heavy if you only want the diagnostic tools; consider whether you need the full nameserver daemon here
+      - nmap                        # Network scanner — handy diagnostic, but also a security tool worth being deliberate about including
+      - tcpdump                     # Packet capture/analysis
+      - open-iscsi                  # iSCSI initiator (network-attached block storage)
+      - nbd                         # Network Block Device client/server — niche, only if you use remote block devices
+      - lftp                        # Advanced scriptable FTP/HTTP(S) client — niche CLI tool, keep if you actually use it
+
+  # ---------------------------------------------------------------------
+  audio:
+    description: Sound stack — PipeWire and its compatibility layers.
+    target_system: true
+    packages:
+      - alsa-utils                  # ALSA mixer/CLI utilities
+      - pipewire                    # Modern audio/video server
+      - pipewire-alsa                # ALSA compatibility layer for PipeWire
+      - pipewire-jack                 # JACK compatibility layer for PipeWire
+      - pipewire-pulse                # PulseAudio compatibility layer for PipeWire
+      - wireplumber                  # Session/policy manager for PipeWire
+      - rtkit                       # RealtimeKit — grants realtime sched to audio threads
+      - realtime-privileges           # Group/limits config enabling realtime privileges
+      - sof-firmware                 # Sound Open Firmware blobs for Intel DSP audio
+
+  # ---------------------------------------------------------------------
+  accessibility:
+    description: Screen reader, braille, and speech synthesis support.
+    target_system: true
+    packages:
+      - orca                        # Screen reader
+      - brltty                      # Braille display driver/daemon
+      - espeak-ng                    # Text-to-speech synthesizer (orca dependency + standalone use)
+
+  # ---------------------------------------------------------------------
+  fonts:
+    description: System font coverage, including CJK and metric-compatible fonts.
+    target_system: true
+    packages:
+      - noto-fonts                   # Google Noto — broad Unicode coverage
+      - noto-fonts-cjk                # Noto CJK (Chinese/Japanese/Korean) coverage
+      - opendesktop-fonts              # openSUSE/opendesktop font collection
+      - ttf-bitstream-vera             # Bitstream Vera family
+      - ttf-dejavu                    # DejaVu family (derived from Vera, wider coverage)
+      - ttf-liberation                # Metric-compatible with Arial/Times/Courier (MS Office compat)
+      - ttf-opensans                  # Open Sans
+
+  # ---------------------------------------------------------------------
+  desktop_kde_core:
+    description: >
+      KDE Plasma shell and its hardware/system integration pieces. Drop
+      this whole module if you ever spin a non-Plasma variant of the ISO.
+    target_system: true
+    packages:
+      - plasma-desktop                # Plasma desktop shell
+      - plasma-workspace               # Plasma workspace components
+      - plasma-integration             # Qt/GTK app theming+integration with Plasma
+      - plasma-nm                     # NetworkManager applet for Plasma
+      - plasma-pa                     # PipeWire/PulseAudio volume applet for Plasma
+      - plasma-thunderbolt             # Thunderbolt device management applet
+      - plasma-login-manager            # SDDM login manager, CachyOS-configured
+      - kscreen                      # Display/monitor configuration
+      - kde-gtk-config                # Makes GTK apps match Plasma theme/settings
+      - breeze-gtk                   # Breeze GTK theme (visual consistency w/ Qt apps)
+      - polkit-kde-agent               # PolicyKit auth-prompt agent for Plasma
+      - bluedevil                    # Bluetooth integration for Plasma (needs bluez as a dependency, not listed explicitly here)
+
+  # ---------------------------------------------------------------------
+  desktop_kde_apps:
+    description: Bundled KDE end-user applications.
+    target_system: true
+    packages:
+      - dolphin                     # File manager
+      # - kate                        # Text editor
+      # - kcalc                       # Calculator
+      - konsole                     # Terminal emulator
+      - spectacle                   # Screenshot tool
+      - partitionmanager             # GUI partition editor (also useful post-install)
+      - kinfocenter                  # System/hardware information panel
+
+  # ---------------------------------------------------------------------
+  applications:
+    description: General end-user applications outside the KDE bundle.
+    target_system: true
+    packages:
+      # - firefox                     # Web browser
+      # - alacritty                   # GPU-accelerated terminal emulator (alt to Konsole)
+      - nushell
+
+  # ---------------------------------------------------------------------
+  cli_utilities:
+    description: General-purpose command-line tools worth having on any install.
+    target_system: true
+    packages:
+      - diffutils                   # diff/cmp/patch family
+      - less                        # Pager
+      - lsof                        # List open files/processes
+      - rsync                       # File sync/backup tool
+      - wget                        # File downloader
+      - nvim                         # Text editor
+      - mc                          # Midnight Commander, TUI file manager
+      - pv                          # Pipe Viewer — monitor data progress through a pipe
+      - inotify-tools                # CLI wrappers around inotify (scripting/dev use)
+      - irssi                       # IRC client — niche/personal-preference inclusion
+      - lynx                        # Text-mode web browser — handy for headless/rescue net checks
+      - inxi                        # Human-friendly system info summary (great for support/bug reports)
+      - rxvt-unicode-terminfo         # terminfo entries for urxvt — only matters if you SSH from/to a urxvt terminal
+
+  # ---------------------------------------------------------------------
+  cachyos_branding:
+    description: CachyOS-specific branding, defaults, and hardware auto-config tooling.
+    target_system: true
+    packages:
+      # - cachyos-fish-config           # CachyOS's fish shell configuration/theme
+      - cachyos-hello                # CachyOS welcome/first-run app
+      - cachyos-kde-settings          # CachyOS KDE theme/defaults
+      - cachyos-hooks                # CachyOS mkinitcpio hooks
+      - chwd                        # CachyOS Hardware Detection — auto-installs GPU/driver packages
+
+  # ---------------------------------------------------------------------
+  live_install:
+    description: >
+      Everything that exists to make the LIVE ISO / installer work, but
+      has no business being on the installed target system without you
+      explicitly deciding otherwise. Split into subgroups by purpose.
+    target_system: false
+    subgroups:
+
+      installer_tools:
+        description: The actual installer stack and archiso plumbing.
+        packages:
+          - arch-install-scripts        # pacstrap/genfstab/arch-chroot — used to install the target system
+          - cachy-chroot                # CachyOS chroot helper for the installer
+          - hwdetect                    # Hardware detection used by the installer
+          - mkinitcpio-archiso            # mkinitcpio hooks for building the archiso initramfs
+          - ckbcomp                     # Console keyboard-layout compiler (keyboard step of installer)
+          - mkinitcpio-nfs-utils           # initramfs hooks for NFS-root boot (netboot/diskless installs)
+
+      boot_media:
+        description: Boot chain for the live medium itself (not the installed system's bootloader).
+        packages:
+          - syslinux                   # BIOS/legacy bootloader for the live USB/ISO
+          - edk2-shell                  # UEFI shell, useful for firmware-level boot debugging
+          - memtest86+                  # Memory tester (BIOS boot entry)
+          - memtest86+-efi               # Memory tester (UEFI boot entry)
+
+      recovery_diagnostics:
+        description: Rescue/recovery tools you run FROM the live medium against other disks.
+        packages:
+          - clonezilla                  # Disk/partition cloning and imaging
+          - ddrescue                    # Data recovery from failing/damaged drives
+          - testdisk                    # Partition/filesystem recovery (bundles PhotoRec)
+          - partclone                   # Filesystem-aware partition backup/restore (used by Clonezilla)
+          - gparted                     # GUI partition editor for the live environment
+          - fatresize                   # Resize FAT partitions (used internally by installers like Calamares)
+          - hwinfo                      # Detailed hardware inventory/diagnostics
+
+      filesystem_type_support:
+        description: >
+          Support for filesystem types you're unlikely to run as your actual
+          root fs, but that the live/install environment needs to read,
+          write, or format during setup or when handling external media.
+        packages:
+          - exfatprogs                  # exFAT support (USB drives, SD cards)
+          - f2fs-tools                  # F2FS support
+          - jfsutils                    # JFS support
+          - nilfs-utils                  # NILFS2 support
+          - udftools                    # UDF support (optical media, some USB drives)
+          - mtools                      # Raw MS-DOS filesystem access without mounting
+
+      iso_build_misc:
+        description: Odds and ends used while building or troubleshooting the live image itself.
+        packages:
+          - squashfs-tools               # Builds/reads the compressed squashfs root used by the live ISO
+          - darkhttpd                   # Tiny HTTP server — handy for local netinstall/file-serving from the live env
+
+# =============================================================================
+# Questionable / low-value / legacy packages
+# =============================================================================
+# Nothing here is deleted. These are flagged because they look like legacy
+# cruft, redundant with something else already in the list, or narrow
+# enough in scope that you may not want them by default. Review and decide.
+# =============================================================================
+# questionable_packages:
+#   - name: ntp
+#     reason: >
+#       Standalone NTP daemon. systemd-timesyncd (bundled with systemd)
+#       already handles clock sync for most desktop use cases; only keep
+#       this if you specifically want full NTP/chrony-grade precision.
+
+#   - name: kxkb2locale1
+#     reason: >
+#       Unusual/uncommon package name — likely a KDE keyboard-layout
+#       related library, but not confidently identifiable from the name
+#       alone. Worth verifying exactly what this provides before deciding.
+
+#   - name: occt
+#     reason: >
+#       "OCCT" is historically a Windows-only overclock/stress-test tool;
+#       unclear what this Linux package actually is without checking the
+#       repo. Worth double-checking this is what you think it is.
+
+#   - name: gpart
+#     reason: >
+#       Old, narrow-scope "guess partition table" recovery tool. testdisk
+#       (already included) covers this same need far more capably.
+
+#   - name: dmraid
+#     reason: >
+#       Legacy BIOS/firmware ("fake") RAID support, mainly for old Intel
+#       RST-style motherboard RAID. Rare to need this over mdadm/ZFS/Btrfs
+#       RAID on anything built in the last several years.
+
+#   - name: ldns
+#     reason: >
+#       DNS library that also ships the `drill` diagnostic tool — overlaps
+#       with `bind` (already included, which ships dig/nslookup/host).
+#       Likely redundant unless something specifically depends on it.
+
+#   - name: cloud-init
+#     reason: >
+#       Cloud-instance provisioning/first-boot tool (AWS/Azure/GCP/etc.).
+#       Only relevant if you're also building cloud VM images alongside
+#       this desktop ISO — not typically needed for bare-metal installs.

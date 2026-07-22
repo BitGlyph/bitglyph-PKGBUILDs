@@ -3,7 +3,7 @@ pkgver=1
 pkgrel=1
 pkgdesc="Meta package: cad software"
 arch=('any')
-url="https://github.com/<you>/my-pkgbuilds"
+url="https://github.com/BitGlyph/bitglyph-PKGBUILDs"
 license=('MIT')
 depends=(
   'freecad'
