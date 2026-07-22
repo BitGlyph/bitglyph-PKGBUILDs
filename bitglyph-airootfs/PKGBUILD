@@ -1,0 +1,15 @@
+pkgname=bitglyph-airootfs
+pkgver=1
+pkgrel=1
+pkgdesc="BitGlyph live-ISO root overlay (/etc, /root, /usr/local live-only config and scripts)"
+arch=('any')
+url="https://github.com/BitGlyph/bitglyph-PKGBUILDs"
+license=('MIT')
+groups=('liveonly')
+
+package() {
+  for tree in etc root usr; do
+    [ -d "$startdir/$tree" ] || continue
+    cp -a "$startdir/$tree" "$pkgdir/"
+  done
+}

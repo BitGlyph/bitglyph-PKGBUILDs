@@ -31,29 +31,56 @@ jobs:
 
       - name: Build all packages
         run: |
-          mkdir -p dist
+          mkdir -p dist/stable dist/liveonly
           for dir in */; do
             pkg="${dir%/}"
             [ -f "$pkg/PKGBUILD" ] || continue
             echo "Building $pkg"
             su builder -c "cd $GITHUB_WORKSPACE/$pkg && makepkg --nodeps --noconfirm --clean"
-            cp "$pkg"/*.pkg.tar.zst dist/
+            for built in "$pkg"/*.pkg.tar.zst; do
+              # groups=('liveonly') in the PKGBUILD marks a package as
+              # live-ISO-only; route it to the separate liveonly repo/release
+              # instead of the normal stable one.
+              if bsdtar -xOf "$built" .PKGINFO | grep -qx 'group = liveonly'; then
+                cp "$built" dist/liveonly/
+              else
+                cp "$built" dist/stable/
+              fi
+            done
           done
-      - name: Create repo database
+      - name: Create repo databases
         run: |
-          cd dist
-          repo-add bitglyph.db.tar.zst *.pkg.tar.zst
+          for repo in stable liveonly; do
+            dbname=bitglyph.db.tar.zst
+            [ "$repo" = "liveonly" ] && dbname=bitglyph-liveonly.db.tar.zst
+            cd "dist/$repo"
+            shopt -s nullglob
+            pkgs=(*.pkg.tar.zst)
+            if [ ${#pkgs[@]} -gt 0 ]; then
+              repo-add "$dbname" "${pkgs[@]}"
 
-          # Replace the repo-add symlinks with real files (GitHub Releases can't upload symlinks)
-          for link in bitglyph.db bitglyph.files; do
-            target=$(readlink -f "$link")
-            rm "$link"
-            cp "$target" "$link"
+              # Replace the repo-add symlinks with real files (GitHub Releases can't upload symlinks)
+              for link in "${dbname%.tar.zst}" "${dbname%.db.tar.zst}.files"; do
+                [ -L "$link" ] || continue
+                target=$(readlink -f "$link")
+                rm "$link"
+                cp "$target" "$link"
+              done
+            fi
+            cd "$GITHUB_WORKSPACE"
           done
-      - name: Publish release
+      - name: Publish stable release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: Latest packages
-          files: dist/*
+          files: dist/stable/*
           make_latest: true
+      - name: Publish liveonly release
+        uses: softprops/action-gh-release@v2
+        if: hashFiles('dist/liveonly/*') != ''
+        with:
+          tag_name: liveonly-latest
+          name: Latest live-only packages
+          files: dist/liveonly/*
+          make_latest: false
