@@ -1,0 +1,47 @@
+name: Build packages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prep system + build user
+        run: |
+          pacman -Syu --noconfirm
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build all packages
+        run: |
+          mkdir -p dist
+          for dir in */; do
+            pkg="${dir%/}"
+            [ -f "$pkg/PKGBUILD" ] || continue
+            echo "Building $pkg"
+            su builder -c "cd $GITHUB_WORKSPACE/$pkg && makepkg --nodeps --noconfirm --clean"
+            cp "$pkg"/*.pkg.tar.zst dist/
+          done
+      - name: Create repo database
+        run: |
+          cd dist
+          repo-add bitglyph.db.tar.zst *.pkg.tar.zst
+          cp --dereference bitglyph.db bitglyph.db
+          cp --dereference bitglyph.files bitglyph.files
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest packages
+          files: dist/*
+          make_latest: true
