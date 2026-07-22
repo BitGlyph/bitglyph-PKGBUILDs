@@ -371,12 +371,6 @@ modules:
 # enough in scope that you may not want them by default. Review and decide.
 # =============================================================================
 # questionable_packages:
-#   - name: ntp
-#     reason: >
-#       Standalone NTP daemon. systemd-timesyncd (bundled with systemd)
-#       already handles clock sync for most desktop use cases; only keep
-#       this if you specifically want full NTP/chrony-grade precision.
-
 #   - name: kxkb2locale1
 #     reason: >
 #       Unusual/uncommon package name — likely a KDE keyboard-layout

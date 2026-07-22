@@ -8,8 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      repos: ${{ steps.repos.outputs.repos }}
     container:
       image: archlinux:base-devel
       options: --privileged
@@ -19,7 +19,7 @@ jobs:
       - name: Prep system + build user
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed python-yaml
+          pacman -S --noconfirm --needed python-yaml jq
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           chown -R builder:builder "$GITHUB_WORKSPACE"
@@ -31,32 +31,44 @@ jobs:
 
       - name: Build all packages
         run: |
-          mkdir -p dist/stable dist/liveonly
+          mkdir -p dist/stable
+          # Ship manifest.yaml alongside the stable release so downstream
+          # repos (e.g. bitglyph-iso) can pull the package list that
+          # produced this build straight from the `latest` release.
+          cp manifest.yaml dist/stable/
           for dir in */; do
             pkg="${dir%/}"
             [ -f "$pkg/PKGBUILD" ] || continue
             echo "Building $pkg"
             su builder -c "cd $GITHUB_WORKSPACE/$pkg && makepkg --nodeps --noconfirm --clean"
             for built in "$pkg"/*.pkg.tar.zst; do
-              # groups=('liveonly') in the PKGBUILD marks a package as
-              # live-ISO-only; route it to the separate liveonly repo/release
-              # instead of the normal stable one.
-              if bsdtar -xOf "$built" .PKGINFO | grep -qx 'group = liveonly'; then
-                cp "$built" dist/liveonly/
+              [ -e "$built" ] || continue
+              # A PKGBUILD's groups=() array is what declares its release tag:
+              # any group name routes the package exclusively to dist/<group>/
+              # (its own repo/release), instead of the default dist/stable/.
+              pkg_groups=$(bsdtar -xOf "$built" .PKGINFO | sed -n 's/^group = //p')
+              if [ -n "$pkg_groups" ]; then
+                while IFS= read -r g; do
+                  mkdir -p "dist/$g"
+                  cp "$built" "dist/$g/"
+                done <<< "$pkg_groups"
               else
                 cp "$built" dist/stable/
               fi
             done
           done
+
       - name: Create repo databases
         run: |
-          for repo in stable liveonly; do
-            dbname=bitglyph.db.tar.zst
-            [ "$repo" = "liveonly" ] && dbname=bitglyph-liveonly.db.tar.zst
-            cd "dist/$repo"
+          cd dist
+          for repo in */; do
+            repo="${repo%/}"
+            cd "$repo"
             shopt -s nullglob
             pkgs=(*.pkg.tar.zst)
             if [ ${#pkgs[@]} -gt 0 ]; then
+              dbname=bitglyph.db.tar.zst
+              [ "$repo" != "stable" ] && dbname="bitglyph-$repo.db.tar.zst"
               repo-add "$dbname" "${pkgs[@]}"
 
               # Replace the repo-add symlinks with real files (GitHub Releases can't upload symlinks)
@@ -67,20 +79,43 @@ jobs:
                 cp "$target" "$link"
               done
             fi
-            cd "$GITHUB_WORKSPACE"
+            cd ..
           done
-      - name: Publish stable release
+
+      - name: Determine which repos have packages
+        id: repos
+        run: |
+          cd dist
+          repos=$(for d in */; do
+            d="${d%/}"
+            [ -n "$(ls -A "$d" 2>/dev/null)" ] && echo "$d"
+          done | jq -R . | jq -s -c .)
+          echo "repos=$repos" >> "$GITHUB_OUTPUT"
+
+      - name: Upload built repos
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        repo: ${{ fromJson(needs.build.outputs.repos) }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish ${{ matrix.repo }} release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest packages
-          files: dist/stable/*
-          make_latest: true
-      - name: Publish liveonly release
-        uses: softprops/action-gh-release@v2
-        if: hashFiles('dist/liveonly/*') != ''
-        with:
-          tag_name: liveonly-latest
-          name: Latest live-only packages
-          files: dist/liveonly/*
-          make_latest: false
+          tag_name: ${{ matrix.repo == 'stable' && 'latest' || format('{0}-latest', matrix.repo) }}
+          name: ${{ matrix.repo == 'stable' && 'Latest packages' || format('Latest {0} packages', matrix.repo) }}
+          files: dist/${{ matrix.repo }}/*
+          make_latest: ${{ matrix.repo == 'stable' }}

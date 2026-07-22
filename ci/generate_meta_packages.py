@@ -27,7 +27,7 @@ pkgdesc="{pkgdesc}"
 arch=('any')
 url="https://github.com/BitGlyph/bitglyph-PKGBUILDs"
 license=('MIT')
-depends=(
+{groups}depends=(
 {depends}
 )
 
@@ -46,7 +46,13 @@ def clean_description(desc: str) -> str:
 
 
 def collect_groups(manifest: dict) -> dict[str, dict]:
-    """Flatten modules (and live_install subgroups) into pkgname -> {description, packages}."""
+    """Flatten modules (and live_install subgroups) into pkgname -> {description, packages, group}.
+
+    An optional `group: <name>` key on a module (or subgroup) becomes a
+    `groups=('<name>')` entry in the generated PKGBUILD, which routes that
+    meta-package exclusively to its own release tag in build.yml instead of
+    the default `stable` one.
+    """
     groups = {}
     for mod_name, mod in manifest["modules"].items():
         if "subgroups" in mod:
@@ -55,23 +61,27 @@ def collect_groups(manifest: dict) -> dict[str, dict]:
                 groups[pkgname] = {
                     "description": sub.get("description", ""),
                     "packages": sub.get("packages", []),
+                    "group": sub.get("group"),
                 }
         else:
             pkgname = f"bitglyph-{slugify(mod_name)}-meta"
             groups[pkgname] = {
                 "description": mod.get("description", ""),
                 "packages": mod.get("packages", []),
+                "group": mod.get("group"),
             }
     return groups
 
 
-def render_pkgbuild(pkgname: str, description: str, packages: list[str]) -> str:
+def render_pkgbuild(pkgname: str, description: str, packages: list[str], group: str | None) -> str:
     depends_block = "\n".join(f"  {pkg}" for pkg in packages)
+    groups_line = f"groups=('{group}')\n" if group else ""
     return PKGBUILD_TEMPLATE.format(
         marker=MARKER,
         pkgname=pkgname,
         pkgver=PKGVER,
         pkgdesc=clean_description(description),
+        groups=groups_line,
         depends=depends_block,
     )
 
@@ -90,7 +100,9 @@ def main() -> int:
             return 1
 
         pkg_dir.mkdir(exist_ok=True)
-        pkgbuild_path.write_text(render_pkgbuild(pkgname, group["description"], group["packages"]))
+        pkgbuild_path.write_text(
+            render_pkgbuild(pkgname, group["description"], group["packages"], group["group"])
+        )
 
     print(f"Generated {len(groups)} meta-package(s) at pkgver={PKGVER}.")
     return 0
