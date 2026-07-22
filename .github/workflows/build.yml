@@ -19,9 +19,13 @@ jobs:
       - name: Prep system + build user
         run: |
           pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed python-yaml
           useradd -m builder
           echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
           chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Generate meta-package PKGBUILDs from manifest.yaml
+        run: python ci/generate_meta_packages.py
 
       - name: Build all packages
         run: |
