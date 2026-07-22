@@ -25,7 +25,9 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
       - name: Generate meta-package PKGBUILDs from manifest.yaml
-        run: python ci/generate_meta_packages.py
+        run: |
+          python ci/generate_meta_packages.py
+          chown -R builder:builder "$GITHUB_WORKSPACE"
 
       - name: Build all packages
         run: |
