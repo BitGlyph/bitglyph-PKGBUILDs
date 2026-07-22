@@ -35,9 +35,13 @@ jobs:
         run: |
           cd dist
           repo-add bitglyph.db.tar.zst *.pkg.tar.zst
-          cp --dereference bitglyph.db bitglyph.db
-          cp --dereference bitglyph.files bitglyph.files
 
+          # Replace the repo-add symlinks with real files (GitHub Releases can't upload symlinks)
+          for link in bitglyph.db bitglyph.files; do
+            target=$(readlink -f "$link")
+            rm "$link"
+            cp "$target" "$link"
+          done
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
